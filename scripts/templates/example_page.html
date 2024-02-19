@@ -24,7 +24,7 @@
             padding: 0; /* Reset default padding */
         }
         header, footer {
-            background-color: white;
+            background-color: rgb(9, 168, 221);
             color: white;
             padding: 10px;
             text-align: center;
@@ -54,11 +54,9 @@
             position: fixed;
             bottom: 0;
             width: 100%;
-            background-color: #ffffff;
-            color: gray; /* Adjust the text color */
+            color: rgb(255, 255, 255); /* Adjust the text color */
             padding: 10px;
             font-size: 13px; /* Adjust the font size */
-
         }
     </style>
 </head>
@@ -68,14 +66,17 @@
             <img class="logo-htw" src="{{ url_for('static', filename='htw.jpg') }}" alt="Image 1">
         </div>
     </header>
-    <h1>Download JSON or CSV example file</h1>
-    <!-- Download JSON -->
-    <a href="{{ url_for('download_json') }}" download="example.json" class="download-button">Download JSON</a>
+    <h1>Download  CSV example file</h1>
+    <p1>The example files are not to be used to train or test the model</p1>
+    <br>
+    <p2>The example files show possible features in training and testing data </p2>
+    <br><br>
 
-    <!-- Download CSV -->
-    <a href="{{ url_for('download_csv') }}" download="example.csv" class="download-button">Download CSV</a>
+    <a href="{{ url_for('download_training') }}" download="training_example.csv" class="download-button">Download Training Example</a>
+
+    <a href="{{ url_for('download_testing') }}" download="testing_example.csv" class="download-button">Download Testing Example</a>
     <footer>
-        © COPYRIGHT
+        Hier könnte Ihre Werbung stehen
     </footer>
 </body>
 </html>

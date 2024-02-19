@@ -58,10 +58,4 @@ class Database:
         finally:
             cursor.close()
         
-# Usage example
-db_username = "sql11683464"
-db_password = "SfFsKWIcWP"
-db_host = "sql11.freemysqlhosting.net"
-db_name = "sql11683464"
-db_port = 3306
 

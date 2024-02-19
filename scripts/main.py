@@ -2,28 +2,93 @@ import csv
 import datetime
 import io
 import json
+import os
 from flask import Flask, Response, request, jsonify, redirect, send_file, send_from_directory, session, url_for, render_template, flash
 from database import Database
 from stdArgParser import getStandardArgParser
 from status import Status
 import api_methods
 import hashlib
+import pandas as pd
+from ai_model import AIModel
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'key'
 parser = getStandardArgParser()
 args = parser.parse_args()
 
+
+ai_model = AIModel()
+
 db_host = "sql11.freemysqlhosting.net"
 db_name = "sql11683464"
 db_port = 3306
+
+UPLOAD_FOLDER = 'uploads'
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+ALLOWED_EXTENSIONS = {'csv'}
+model_trained = False  # Flag to track the training status
 
 cursor = Database(args.dbUser, args.dbPassword, db_host, db_name, db_port)
 
 status = Status()
 
 
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+@app.route("/upload-train", methods=["GET", "POST"])
+def upload_train():
+    global model_trained  # Use a global variable to track the training status
+
+    if request.method == 'POST':
+        file = request.files['file']
+        
+        if file and allowed_file(file.filename):
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], 'train_data.csv')
+            file.save(file_path)
+
+            train_data = pd.read_csv(file_path)
+
+            # Train the model using the uploaded train data
+            ai_model.train_model(train_data)
+
+            model_trained = True # Use a global variable to track the training status
+
+
+            flash('Train data uploaded and model trained successfully!', 'success')
+        else:
+            flash('Invalid file format. Please upload a valid CSV file.', 'error')
+
+
+    return render_template('train.html')
+
+
+@app.route("/upload-test", methods=["GET", "POST"])
+def upload_test():
+    global model_trained
+
+    if request.method == 'POST':
+        file = request.files['file']
+
+        if not model_trained:
+            flash('Error: Model has not yet been trained. Please train the model first.', 'error')
+            return render_template('test.html')
+
+        if file and allowed_file(file.filename):
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], 'test_data.csv')
+            file.save(file_path)
+
+            test_data = pd.read_csv(file_path)
+
+            # Get predictions and result file path
+            result_file_path = ai_model.predict(test_data)
+
+            flash('Test data uploaded and predictions made successfully!', 'success')
+
+            return send_file(result_file_path, as_attachment=True)
+
+    return render_template('test.html')
 
 # Ensure responses aren't cached
 @app.after_request
@@ -39,7 +104,10 @@ def login():
         password = request.form['password']
         if api_methods.check_credentials(username, password, cursor):
             session['username'] = username
-            return redirect(url_for('main_page'))
+            if username == 'admin':
+                return redirect(url_for('admin_main_page'))
+            else:
+                return redirect(url_for('main_page'))
         else:
             status.setStatus(401, "INCORRECT_LOGIN")
     return render_template('login.html')
@@ -52,163 +120,52 @@ def main_page():
         return render_template('login.html')
     return render_template('main_page.html')
 
+@app.route("/admin-main", methods=["GET"])
+def admin_main_page():
+    if 'username' not in session:
+        status.setStatus(401, "INCORRECT_LOGIN")
+        return render_template('login.html')
+    return render_template('admin_main_page.html')
+
+@app.route('/add-user', methods=["GET", "POST"])
+def add_user():
+    if 'username' not in session or session['username'] != 'admin':
+        # If not logged in or not admin, redirect to login page
+        return redirect(url_for('login'))
+
+    if request.method == "POST":
+        # Get the user input from the form
+        username = request.form['username']
+        password = request.form['password']
+        email = request.form['email']
+
+        # Assuming 'registered' is the current date/time
+        registered = datetime.date.today().strftime("%Y-%m-%d")
+        
+        result = api_methods.store_credentials(username, password, email, registered, cursor)
+
+        if result == True:
+            flash('User added successfully!', 'success')
+            # Redirect to the admin main page after adding the user
+            return redirect(url_for('admin_main_page'))
+        elif result == False:
+            flash('Error: Username already exists. Choose a different username.', 'error')
+
+        # Redirect to the admin main page after adding the user
+        return redirect(url_for('admin_main_page'))
+
+    return render_template('add_user.html')  # Render the add-user template
+
+
 @app.route('/sign-out', methods=['POST'])
 def sign_out():
 
     session.pop('username', None)
     return render_template('login.html')
 
-# traning data
-@app.route("/upload-train", methods=["GET", "POST"])
-def upload_train():
-    session['temp_csv_content'] = []
-
-    if 'username' not in session:
-        status.setStatus(401, "INCORRECT_LOGIN")
-        return render_template('login.html')
-
-        
-    if request.method == "POST":
-        if 'file' not in request.files:
-            status.setStatus(401, "NO_FILE")
-        
-        file = request.files['file']
-
-        if file.filename == '':
-            status.setStatus(401,"NO_FILE_SELECTED")
-            return render_template('main_page.html')
-
-        current_date = datetime.date.today().strftime("%d.%m.%Y")
-
-        try:
-
-            if file:
-                if file.filename.endswith('.csv'):
-                    with io.TextIOWrapper(file.stream, encoding='utf-8') as text_file:
-                        reader = csv.DictReader(text_file)
-                        header = [key.upper() for key in reader.fieldnames]  # Get the header row and convert keys to uppercase
-                        new_reader = [{key.upper(): value.strip() if isinstance(value, str) else value for key, value in entry.items()} for entry in reader]
-
-                        session['temp_csv_content'].clear()
-
-                        if all(key in header for key in ["VERBUNDBEZEICHNUNG", "THEMA", "LAUFZEITBEGINN", "LAUFZEITENDE", "BEWILLIGUNGSDATUM", "BEWILLIGUNGSSUMME", "COMPANYNAME", "FOUNDEDDATE", "URL", "EMAIL", "TEL", "STREET", "ZIPCODE", "CITY", "DESCRIPTION"]):
-
-                            is_valid, error_message = api_methods.check_dates(new_reader)
-                            if not is_valid:
-                            # Handle the error condition, e.g., flash the error message or return an error response
-                                flash(error_message, 'error')
-                                return redirect(url_for('upload_train'))
-                            
-                            response_messages = []  # Collect response messages for each row
-                     
-                            for row in new_reader:
-                                #row = {key: value.strip() if isinstance(value, str) else value for key, value in row.items()}
-                                query = "select count(*) + 1 from company where fkz like '03EEXT%'"
-                                current_fkz_number = cursor.getScalarResult(query,None)
-                                fkz_value = f"03EEXT{current_fkz_number:04d}"
-                                akz_value = fkz_value[3:]  
-                                #row = {key.upper(): value for key, value in row.items()}
-                                
-                                query = "INSERT INTO COMPANY (FKZ, AKZ, ACTIVE, COMPANYNAME, FOUNDEDDATE, URL, EMAIL, TEL, STREET, ZIPCODE, CITY, DESCRIPTION) VALUES (:FKZ, :AKZ, :ACTIVE, :COMPANYNAME, :FOUNDEDDATE, :URL, :EMAIL, :TEL, :STREET, :ZIPCODE, :CITY, :DESCRIPTION)"
-                                cursor.executeSQL(query, {'FKZ': fkz_value, 'AKZ': akz_value, 'ACTIVE': 1, 'COMPANYNAME': row['COMPANYNAME'], 'FOUNDEDDATE': row['FOUNDEDDATE'], 'URL': row['URL'], 'EMAIL': row['EMAIL'], 'TEL': row['TEL'], 'STREET': row['STREET'], 'ZIPCODE': row['ZIPCODE'], 'CITY': row['CITY'], 'DESCRIPTION': row['DESCRIPTION']})
-                            
-                                query = "INSERT INTO I_PROFI_GRUNDDATEN (FKZ, AKRONYM, EINGANGSDATUM, VERBUNDBEZEICHNUNG, THEMA, LAUFZEITBEGINN, LAUFZEITENDE, BEWILLIGUNGSDATUM, BEWILLIGUNGSSUMME) VALUES (:FKZ, :AKRONYM, :EINGANGSDATUM, :VERBUNDBEZEICHNUNG, :THEMA, :LAUFZEITBEGINN, :LAUFZEITENDE, :BEWILLIGUNGSDATUM, :BEWILLIGUNGSSUMME)"
-                                cursor.executeSQL(query, {'FKZ': fkz_value, 'AKRONYM': row['COMPANYNAME'], 'EINGANGSDATUM': current_date, 'VERBUNDBEZEICHNUNG': row['VERBUNDBEZEICHNUNG'], 'THEMA': row['THEMA'], 'LAUFZEITBEGINN': row['LAUFZEITBEGINN'], 'LAUFZEITENDE': row['LAUFZEITENDE'], 'BEWILLIGUNGSDATUM': row['BEWILLIGUNGSDATUM'], 'BEWILLIGUNGSSUMME': row['BEWILLIGUNGSSUMME']})
-                            
-                                response_messages.append({"FKZ": fkz_value, "CompanyName": row['COMPANYNAME']})
-                                session['temp_csv_content'].append({'FKZ': fkz_value, 'AKZ': akz_value, 'ACTIVE': 1, 'COMPANYNAME': row['COMPANYNAME'], 'FOUNDEDDATE': row['FOUNDEDDATE'], 'URL': row['URL'], 'EMAIL': row['EMAIL'], 'TEL': row['TEL'], 'STREET': row['STREET'], 'ZIPCODE': row['ZIPCODE'], 'CITY': row['CITY'], 'DESCRIPTION': row['DESCRIPTION'], 'AKRONYM': row['COMPANYNAME'], 'EINGANGSDATUM': current_date, 'VERBUNDBEZEICHNUNG': row['VERBUNDBEZEICHNUNG'], 'THEMA': row['THEMA'], 'LAUFZEITBEGINN': row['LAUFZEITBEGINN'], 'LAUFZEITENDE': row['LAUFZEITENDE'], 'BEWILLIGUNGSDATUM': row['BEWILLIGUNGSDATUM'], 'BEWILLIGUNGSSUMME': row['BEWILLIGUNGSSUMME']})
-
-                                html_response = api_methods.generate_html_response(response_messages)
-
-                            return html_response, 200
-                        else:
-                            return jsonify({"error": "Missing or incorrect keys in csv file, please view examples for more information"}), 400
-                    
-                else:
-                    return jsonify({"error": "Unsupported file format"}), 400
-
-        except Exception as e:
-            return jsonify({"error": str(e)}), 400
-        
-    return render_template('train.html')
-
-@app.route("/upload-test", methods=["GET", "POST"])
-def upload_test():
-    session['temp_csv_content'] = []
-
-    if 'username' not in session:
-        status.setStatus(401, "INCORRECT_LOGIN")
-        return render_template('login.html')
-
-        
-    if request.method == "POST":
-        if 'file' not in request.files:
-            status.setStatus(401, "NO_FILE")
-        
-        file = request.files['file']
-
-        if file.filename == '':
-            status.setStatus(401,"NO_FILE_SELECTED")
-            return render_template('main_page.html')
-
-        current_date = datetime.date.today().strftime("%d.%m.%Y")
-
-        try:
-
-            if file:
-                if file.filename.endswith('.csv'):
-                    with io.TextIOWrapper(file.stream, encoding='utf-8') as text_file:
-                        reader = csv.DictReader(text_file)
-                        header = [key.upper() for key in reader.fieldnames]  # Get the header row and convert keys to uppercase
-                        new_reader = [{key.upper(): value.strip() if isinstance(value, str) else value for key, value in entry.items()} for entry in reader]
-
-                        session['temp_csv_content'].clear()
-
-                        if all(key in header for key in ["VERBUNDBEZEICHNUNG", "THEMA", "LAUFZEITBEGINN", "LAUFZEITENDE", "BEWILLIGUNGSDATUM", "BEWILLIGUNGSSUMME", "COMPANYNAME", "FOUNDEDDATE", "URL", "EMAIL", "TEL", "STREET", "ZIPCODE", "CITY", "DESCRIPTION"]):
-
-                            is_valid, error_message = api_methods.check_dates(new_reader)
-                            if not is_valid:
-                            # Handle the error condition, e.g., flash the error message or return an error response
-                                flash(error_message, 'error')
-                                return redirect(url_for('upload_test'))
-                            
-                            response_messages = []  # Collect response messages for each row
-                     
-                            for row in new_reader:
-                                #row = {key: value.strip() if isinstance(value, str) else value for key, value in row.items()}
-                                query = "select count(*) + 1 from company where fkz like '03EEXT%'"
-                                current_fkz_number = cursor.getScalarResult(query,None)
-                                fkz_value = f"03EEXT{current_fkz_number:04d}"
-                                akz_value = fkz_value[3:]  
-                                #row = {key.upper(): value for key, value in row.items()}
-                                
-                                query = "INSERT INTO COMPANY (FKZ, AKZ, ACTIVE, COMPANYNAME, FOUNDEDDATE, URL, EMAIL, TEL, STREET, ZIPCODE, CITY, DESCRIPTION) VALUES (:FKZ, :AKZ, :ACTIVE, :COMPANYNAME, :FOUNDEDDATE, :URL, :EMAIL, :TEL, :STREET, :ZIPCODE, :CITY, :DESCRIPTION)"
-                                cursor.executeSQL(query, {'FKZ': fkz_value, 'AKZ': akz_value, 'ACTIVE': 1, 'COMPANYNAME': row['COMPANYNAME'], 'FOUNDEDDATE': row['FOUNDEDDATE'], 'URL': row['URL'], 'EMAIL': row['EMAIL'], 'TEL': row['TEL'], 'STREET': row['STREET'], 'ZIPCODE': row['ZIPCODE'], 'CITY': row['CITY'], 'DESCRIPTION': row['DESCRIPTION']})
-                            
-                                query = "INSERT INTO I_PROFI_GRUNDDATEN (FKZ, AKRONYM, EINGANGSDATUM, VERBUNDBEZEICHNUNG, THEMA, LAUFZEITBEGINN, LAUFZEITENDE, BEWILLIGUNGSDATUM, BEWILLIGUNGSSUMME) VALUES (:FKZ, :AKRONYM, :EINGANGSDATUM, :VERBUNDBEZEICHNUNG, :THEMA, :LAUFZEITBEGINN, :LAUFZEITENDE, :BEWILLIGUNGSDATUM, :BEWILLIGUNGSSUMME)"
-                                cursor.executeSQL(query, {'FKZ': fkz_value, 'AKRONYM': row['COMPANYNAME'], 'EINGANGSDATUM': current_date, 'VERBUNDBEZEICHNUNG': row['VERBUNDBEZEICHNUNG'], 'THEMA': row['THEMA'], 'LAUFZEITBEGINN': row['LAUFZEITBEGINN'], 'LAUFZEITENDE': row['LAUFZEITENDE'], 'BEWILLIGUNGSDATUM': row['BEWILLIGUNGSDATUM'], 'BEWILLIGUNGSSUMME': row['BEWILLIGUNGSSUMME']})
-                            
-                                response_messages.append({"FKZ": fkz_value, "CompanyName": row['COMPANYNAME']})
-                                session['temp_csv_content'].append({'FKZ': fkz_value, 'AKZ': akz_value, 'ACTIVE': 1, 'COMPANYNAME': row['COMPANYNAME'], 'FOUNDEDDATE': row['FOUNDEDDATE'], 'URL': row['URL'], 'EMAIL': row['EMAIL'], 'TEL': row['TEL'], 'STREET': row['STREET'], 'ZIPCODE': row['ZIPCODE'], 'CITY': row['CITY'], 'DESCRIPTION': row['DESCRIPTION'], 'AKRONYM': row['COMPANYNAME'], 'EINGANGSDATUM': current_date, 'VERBUNDBEZEICHNUNG': row['VERBUNDBEZEICHNUNG'], 'THEMA': row['THEMA'], 'LAUFZEITBEGINN': row['LAUFZEITBEGINN'], 'LAUFZEITENDE': row['LAUFZEITENDE'], 'BEWILLIGUNGSDATUM': row['BEWILLIGUNGSDATUM'], 'BEWILLIGUNGSSUMME': row['BEWILLIGUNGSSUMME']})
-
-                                html_response = api_methods.generate_html_response(response_messages)
-
-                            return html_response, 200
-                        else:
-                            return jsonify({"error": "Missing or incorrect keys in csv file, please view examples for more information"}), 400
-                    
-                else:
-                    return jsonify({"error": "Unsupported file format"}), 400
-
-        except Exception as e:
-            return jsonify({"error": str(e)}), 400
-        
-    return render_template('test.html')
-
 @app.route('/example-page')
 def example_page():
     return render_template('example_page.html')
-
 
 @app.route('/change-password', methods=['GET'])
 def change_password_page():
@@ -227,6 +184,10 @@ def change_password():
     current_password = request.form.get('current_password')
     new_password = request.form.get('new_password')
 
+    if len(new_password) <= 7:
+        flash('New password must be at least 8 characters long.', 'error')
+        return render_template('main_page.html')
+    
     # Check if the current password is correct
     if api_methods.check_credentials(session.get('username'), current_password, cursor):
         # Update the password in the database
@@ -239,100 +200,36 @@ def change_password():
 
     return render_template('main_page.html')
 
-@app.route('/download-json')
-def download_json():
-    json_data = [
-        {
-            "VERBUNDBEZEICHNUNG": "AAAVERBUNDBEZEICHNUNG1",
-            "THEMA": "thema1",
-            "LAUFZEITBEGINN": "01.10.23",
-            "LAUFZEITENDE": "30.09.24",
-            "BEWILLIGUNGSDATUM": "23.08.07",
-            "BEWILLIGUNGSSUMME": "122317,08",
-            "COMPANYNAME": "AAACompany1",
-            "FOUNDEDDATE": "05.04.19",
-            "URL": "www.probe.com",
-            "EMAIL": "email.com",
-            "TEL": "12356789",
-            "STREET": "street 1",
-            "ZIPCODE": "12345",
-            "CITY": "Berlin",
-            "DESCRIPTION": "this is a company..."
-        },
-        {
-            "VERBUNDBEZEICHNUNG": "AAAVERBUNDBEZEICHNUNG1",
-            "THEMA": "thema1",
-            "LAUFZEITBEGINN": "01.10.23",
-            "LAUFZEITENDE": "30.09.24",
-            "BEWILLIGUNGSDATUM": "23.08.07",
-            "BEWILLIGUNGSSUMME": "122317,08",
-            "COMPANYNAME": "AAACompany1",
-            "FOUNDEDDATE": "05.04.19",
-            "URL": "www.probe.com",
-            "EMAIL": "email.com",
-            "TEL": "12356789",
-            "STREET": "street 1",
-            "ZIPCODE": "12345",
-            "CITY": "Berlin",
-            "DESCRIPTION": "this is a company..."
-        }
+@app.route('/download-training-example')
+def download_training():
+    new_data = [
+        {"duration": 0, "protocol_type": "tcp", "service": "ftp_data", "flag": "SF", "src_bytes": 491, "dst_bytes": 0, "land": 0, "wrong_fragment": 0, "urgent": 0, "hot": 0, "num_failed_logins": 0, "logged_in": 0, "num_compromised": 0, "root_shell": 0, "su_attempted": 0, "num_root": 0, "num_file_creations": 0, "num_shells": 0, "num_access_files": 0, "num_outbound_cmds": 0, "is_host_login": 0, "is_guest_login": 0, "count": 2, "srv_count": 2, "serror_rate": 0.17, "srv_serror_rate": 0.03, "rerror_rate": 0.17, "srv_rerror_rate": 0, "same_srv_rate": 0, "diff_srv_rate": 0.05, "srv_diff_host_rate": 0, "dst_host_count": 150, "dst_host_srv_count": 25, "dst_host_same_srv_rate": 0.17, "dst_host_diff_srv_rate": 0.03, "dst_host_same_src_port_rate": 0.17, "dst_host_srv_diff_host_rate": 0, "dst_host_serror_rate": 0.05, "dst_host_srv_serror_rate": 0, "dst_host_rerror_rate": 0, "dst_host_srv_rerror_rate": 0, "class": "normal"},
+        {"duration": 0, "protocol_type": "udp", "service": "other", "flag": "SF", "src_bytes": 146, "dst_bytes": 0, "land": 0, "wrong_fragment": 0, "urgent": 0, "hot": 0, "num_failed_logins": 0, "logged_in": 0, "num_compromised": 0, "root_shell": 0, "su_attempted": 0, "num_root": 0, "num_file_creations": 0, "num_shells": 0, "num_access_files": 0, "num_outbound_cmds": 0, "is_host_login": 0, "is_guest_login": 0, "count": 13, "srv_count": 1, "serror_rate": 0, "srv_serror_rate": 0.08, "rerror_rate": 0, "srv_rerror_rate": 0, "same_srv_rate": 0, "diff_srv_rate": 0, "srv_diff_host_rate": 0.15, "dst_host_count": 255, "dst_host_srv_count": 1, "dst_host_same_srv_rate": 0.6, "dst_host_diff_srv_rate": 0.88, "dst_host_same_src_port_rate": 0, "dst_host_srv_diff_host_rate": 0, "dst_host_serror_rate": 0, "dst_host_srv_serror_rate": 0, "dst_host_rerror_rate": 0, "dst_host_srv_rerror_rate": 0, "class": "normal"},
+        {"duration": 0, "protocol_type": "tcp", "service": "private", "flag": "S0", "src_bytes": 0, "dst_bytes": 0, "land": 0, "wrong_fragment": 0, "urgent": 0, "hot": 0, "num_failed_logins": 0, "logged_in": 0, "num_compromised": 0, "root_shell": 0, "su_attempted": 0, "num_root": 0, "num_file_creations": 0, "num_shells": 0, "num_access_files": 0, "num_outbound_cmds": 0, "is_host_login": 0, "is_guest_login": 0, "count": 123, "srv_count": 6, "serror_rate": 0.1, "srv_serror_rate": 0.05, "rerror_rate": 0, "srv_rerror_rate": 0, "same_srv_rate": 0, "diff_srv_rate": 0, "srv_diff_host_rate": 0.05, "dst_host_count": 255, "dst_host_srv_count": 26, "dst_host_same_srv_rate": 0.1, "dst_host_diff_srv_rate": 0.05, "dst_host_same_src_port_rate": 0, "dst_host_srv_diff_host_rate": 0, "dst_host_serror_rate": 0, "dst_host_srv_serror_rate": 0, "dst_host_rerror_rate": 1, "dst_host_srv_rerror_rate": 1, "class": "anomaly"}
     ]
 
-    # Create a Flask Response object with JSON data
-    response = Response(response=json.dumps(json_data), status=200, mimetype='application/json')
-    
-    # Set the content-disposition header to trigger a download
-    response.headers['Content-Disposition'] = 'attachment; filename=example.json'
-
-    return response
-
-@app.route('/download-csv')
-def download_csv():
-    example_data = [
-        {"VERBUNDBEZEICHNUNG": "AAAVERBUNDBEZEICHNUNG1", "THEMA": "thema1", "LAUFZEITBEGINN": "01.10.23", "LAUFZEITENDE": "30.09.24", "BEWILLIGUNGSDATUM": "23.08.07", "BEWILLIGUNGSSUMME": "\"122317,08\"", "COMPANYNAME": "AAACompany1", "FOUNDEDDATE": "05.04.19", "URL": "www.probe.com", "EMAIL": "email.com", "TEL": "12356789", "STREET": "street 1", "ZIPCODE": "12345", "CITY": "Berlin", "DESCRIPTION": "this is a company..."},
-        {"VERBUNDBEZEICHNUNG": "AAAVERBUNDBEZEICHNUNG1", "THEMA": "thema1", "LAUFZEITBEGINN": "01.10.23", "LAUFZEITENDE": "30.09.24", "BEWILLIGUNGSDATUM": "23.08.07", "BEWILLIGUNGSSUMME": "\"122317,08\"", "COMPANYNAME": "AAACompany1", "FOUNDEDDATE": "05.04.19", "URL": "www.probe.com", "EMAIL": "email.com", "TEL": "12356789", "STREET": "street 1", "ZIPCODE": "12345", "CITY": "Berlin", "DESCRIPTION": "this is a company..."}
-    ]
-
-    csv_content = "VERBUNDBEZEICHNUNG,THEMA,LAUFZEITBEGINN,LAUFZEITENDE,BEWILLIGUNGSDATUM,BEWILLIGUNGSSUMME,COMPANYNAME,FOUNDEDDATE,URL,EMAIL,TEL,STREET,ZIPCODE,CITY,DESCRIPTION\n"
-    for row in example_data:
+    csv_content = "duration,protocol_type,service,flag,src_bytes,dst_bytes,land,wrong_fragment,urgent,hot,num_failed_logins,logged_in,num_compromised,root_shell,su_attempted,num_root,num_file_creations,num_shells,num_access_files,num_outbound_cmds,is_host_login,is_guest_login,count,srv_count,serror_rate,srv_serror_rate,rerror_rate,srv_rerror_rate,same_srv_rate,diff_srv_rate,srv_diff_host_rate,dst_host_count,dst_host_srv_count,dst_host_same_srv_rate,dst_host_diff_srv_rate,dst_host_same_src_port_rate,dst_host_srv_diff_host_rate,dst_host_serror_rate,dst_host_srv_serror_rate,dst_host_rerror_rate,dst_host_srv_rerror_rate,class\n"
+    for row in new_data:
         csv_content += ','.join(map(str, row.values())) + '\n'
 
     response = Response(csv_content, content_type='text/csv')
-    response.headers["Content-Disposition"] = "attachment; filename=example.csv"
+    response.headers["Content-Disposition"] = "attachment; filename=training_example.csv"
     return response
 
-@app.route("/download-uploaded-data")
-def download_uploaded_data():
+@app.route('/download-testing-example')
+def download_testing():
+    new_data = [
+        {"duration": 0, "protocol_type": "tcp", "service": "private", "flag": "REJ", "src_bytes": 0, "dst_bytes": 0, "land": 0, "wrong_fragment": 0, "urgent": 0, "hot": 0, "num_failed_logins": 0, "logged_in": 0, "num_compromised": 0, "root_shell": 0, "su_attempted": 0, "num_root": 0, "num_file_creations": 0, "num_shells": 0, "num_access_files": 0, "num_outbound_cmds": 0, "is_host_login": 0, "is_guest_login": 0, "count": 229, "srv_count": 10, "serror_rate": 0, "srv_serror_rate": 0.04, "rerror_rate": 0.06, "srv_rerror_rate": 0, "same_srv_rate": 0.06, "diff_srv_rate": 0, "srv_diff_host_rate": 0, "dst_host_count": 255, "dst_host_srv_count": 10, "dst_host_same_srv_rate": 0.04, "dst_host_diff_srv_rate": 0.06, "dst_host_same_src_port_rate": 0, "dst_host_srv_diff_host_rate": 0, "dst_host_serror_rate": 0, "dst_host_srv_serror_rate": 0, "dst_host_rerror_rate": 1, "dst_host_srv_rerror_rate": 1},
+        {"duration": 0, "protocol_type": "tcp", "service": "private", "flag": "REJ", "src_bytes": 0, "dst_bytes": 0, "land": 0, "wrong_fragment": 0, "urgent": 0, "hot": 0, "num_failed_logins": 0, "logged_in": 0, "num_compromised": 0, "root_shell": 0, "su_attempted": 0, "num_root": 0, "num_file_creations": 0, "num_shells": 0, "num_access_files": 0, "num_outbound_cmds": 0, "is_host_login": 0, "is_guest_login": 0, "count": 136, "srv_count": 1, "serror_rate": 0, "srv_serror_rate": 0.01, "rerror_rate": 0.06, "srv_rerror_rate": 0, "same_srv_rate": 0.06, "diff_srv_rate": 0, "srv_diff_host_rate": 0, "dst_host_count": 255, "dst_host_srv_count": 1, "dst_host_same_srv_rate": 0.06, "dst_host_diff_srv_rate": 0, "dst_host_same_src_port_rate": 0, "dst_host_srv_diff_host_rate": 0, "dst_host_serror_rate": 0, "dst_host_srv_serror_rate": 0, "dst_host_rerror_rate": 1, "dst_host_srv_rerror_rate": 1},
+        {"duration": 2, "protocol_type": "tcp", "service": "ftp_data", "flag": "SF", "src_bytes": 12983, "dst_bytes": 0, "land": 0, "wrong_fragment": 0, "urgent": 0, "hot": 0, "num_failed_logins": 0, "logged_in": 0, "num_compromised": 0, "root_shell": 0, "su_attempted": 0, "num_root": 0, "num_file_creations": 0, "num_shells": 0, "num_access_files": 0, "num_outbound_cmds": 0, "is_host_login": 0, "is_guest_login": 0, "count": 1, "srv_count": 1, "serror_rate": 0, "srv_serror_rate": 0.61, "rerror_rate": 0.04, "srv_rerror_rate": 0.61, "same_srv_rate": 0.02, "diff_srv_rate": 0, "srv_diff_host_rate": 0, "dst_host_count": 134, "dst_host_srv_count": 86, "dst_host_same_srv_rate": 0.61, "dst_host_diff_srv_rate": 0.04, "dst_host_same_src_port_rate": 0.61, "dst_host_srv_diff_host_rate": 0.02, "dst_host_serror_rate": 0, "dst_host_srv_serror_rate": 0, "dst_host_rerror_rate": 0, "dst_host_srv_rerror_rate": 0}
+    ]
 
-    csv_content = "FKZ, AKZ, ACTIVE, COMPANYNAME, FOUNDEDDATE, URL, EMAIL, TEL, STREET, ZIPCODE, CITY, DESCRIPTION, AKRONYM, EINGANGSDATUM, VERBUNDBEZEICHNUNG, THEMA, LAUFZEITBEGINN, LAUFZEITENDE, BEWILLIGUNGSDATUM, BEWILLIGUNGSSUMME\n"
-    for row in session['temp_csv_content']:
-        # Explicitly define the order of columns
-        ordered_values = [
-            row['FKZ'],
-            row['AKZ'],
-            row['ACTIVE'],
-            row['COMPANYNAME'],
-            row['FOUNDEDDATE'],
-            row['URL'],
-            row['EMAIL'],
-            row['TEL'],
-            row['STREET'],
-            row['ZIPCODE'],
-            row['CITY'],
-            row['DESCRIPTION'],
-            row['AKRONYM'],
-            row['EINGANGSDATUM'],
-            row['VERBUNDBEZEICHNUNG'],
-            row['THEMA'],
-            row['LAUFZEITBEGINN'],
-            row['LAUFZEITENDE'],
-            row['BEWILLIGUNGSDATUM'],
-            row['BEWILLIGUNGSSUMME']
-        ]
-        csv_content += ','.join(map(str, ordered_values)) + '\n'
+    csv_content = "duration,protocol_type,service,flag,src_bytes,dst_bytes,land,wrong_fragment,urgent,hot,num_failed_logins,logged_in,num_compromised,root_shell,su_attempted,num_root,num_file_creations,num_shells,num_access_files,num_outbound_cmds,is_host_login,is_guest_login,count,srv_count,serror_rate,srv_serror_rate,rerror_rate,srv_rerror_rate,same_srv_rate,diff_srv_rate,srv_diff_host_rate,dst_host_count,dst_host_srv_count,dst_host_same_srv_rate,dst_host_diff_srv_rate,dst_host_same_src_port_rate,dst_host_srv_diff_host_rate,dst_host_serror_rate,dst_host_srv_serror_rate,dst_host_rerror_rate,dst_host_srv_rerror_rate\n"
+    for row in new_data:
+        csv_content += ','.join(map(str, row.values())) + '\n'
+
     response = Response(csv_content, content_type='text/csv')
-    response.headers["Content-Disposition"] = "attachment; filename=uploaded.csv"
-    session['temp_csv_content'].clear()
+    response.headers["Content-Disposition"] = "attachment; filename=testing_example.csv"
     return response
 
 if __name__ == '__main__':

@@ -205,3 +205,38 @@ login
     </div>
 </body>
 </html>
+
+
+
+=========================================einfach upload through train route===========================================
+@app.route("/upload-train", methods=["GET", "POST"])
+def upload_train():
+    if 'username' not in session:
+        status.setStatus(401, "INCORRECT_LOGIN")
+        return render_template('login.html')
+
+    if request.method == "POST":
+        if 'file' not in request.files:
+            status.setStatus(401, "NO_FILE")
+        
+        train_data = request.files['file']
+
+        if train_data.filename == '':
+            status.setStatus(401,"NO_FILE_SELECTED")
+            return render_template('main_page.html')
+        
+        # Create the 'train_data' folder if it doesn't exist
+        if not os.path.exists('train_data'):
+            os.makedirs('train_data')
+        
+        # Process the train data (e.g., save to a database, train the AI model)
+        # For simplicity, let's assume you save the file to a folder named 'train_data'
+        train_data.save('train_data/' + train_data.filename)
+
+        # Train the AI model with the uploaded train data
+        # ai_model.train_model('train_data/' + train_data.filename)
+
+        # Provide feedback to the user
+        flash('Train data uploaded and model trained successfully!', 'success')
+
+    return render_template('train.html')

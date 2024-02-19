@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Upload Row</title>
+    <title>Upload Test Data</title>
     <style>
         .main-content {
             margin-top: 10px;
@@ -41,7 +41,7 @@
             padding: 0; /* Reset default padding */
         }
         header, footer {
-            background-color: white;
+            background-color: rgb(9, 168, 221);
             color: white;
             padding: 10px;
             text-align: center;
@@ -71,13 +71,19 @@
             position: fixed;
             bottom: 0;
             width: 100%;
-            background-color: #ffffff;
-            color: gray; /* Adjust the text color */
+            color: rgb(255, 255, 255); /* Adjust the text color */
             padding: 10px;
             font-size: 13px; /* Adjust the font size */
         }
+        .title {
+            margin-top: 0px; /* Adjust the margin as needed */
+            font-size: 30px; /* Adjust the font size as needed */
+            text-align: left; /* Center the text */
+            color: #000000; /* Adjust the text color as needed */
+        }
         
     </style>
+
 </head>
 <body>
     <header>
@@ -86,6 +92,9 @@
         </div>
     </header>
     <div class="main-content">
+        <div class="title">
+            <p>Upload Test csv File </p>
+        </div>
         {% if not html_response %}
             {% with messages = get_flashed_messages() %}
                 {% if messages %}
@@ -99,12 +108,16 @@
                 <input type="submit" value="Upload">
             </form>
 
+
+            <form method="GET" action="/main">
+                <input type="submit" value="Main Page" class="example-button">
+            </form>
         {% else %}
             {{ html_response | safe }}
         {% endif %}
     </div>
     <footer>
-        © COPYRIGHT
+        Hier könnte Ihre Werbung stehen
     </footer>
 </body>
 </html>

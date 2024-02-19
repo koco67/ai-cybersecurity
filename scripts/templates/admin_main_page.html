@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Upload Train Data</title>
+    <title>Admin Main Page</title>
     <style>
         .main-content {
             margin-top: 10px;
@@ -15,7 +15,7 @@
             color: white;
             text-decoration: none;
             border-radius: 5px;
-            margin-top: 100px;
+            margin-top: 50px;
         }
 
         .example-button:hover {
@@ -75,12 +75,6 @@
             padding: 10px;
             font-size: 13px; /* Adjust the font size */
         }
-        .title {
-            margin-top: 0px; /* Adjust the margin as needed */
-            font-size: 30px; /* Adjust the font size as needed */
-            text-align: left; /* Center the text */
-            color: #000000; /* Adjust the text color as needed */
-        }
         
     </style>
 </head>
@@ -91,9 +85,6 @@
         </div>
     </header>
     <div class="main-content">
-        <div class="title">
-            <p>Upload Train csv File </p>
-        </div>
         {% if not html_response %}
             {% with messages = get_flashed_messages() %}
                 {% if messages %}
@@ -102,16 +93,17 @@
                     </div>
                 {% endif %}
             {% endwith %}
-            <form method="POST" action="/upload-train" enctype="multipart/form-data">
-                <input type="file" name="file">
-                <input type="submit" value="Upload">
+    
+            <form action="/add-user" method="get">
+                <button type="submit" class="example-button">Add New User</button>
             </form>
 
-
-            <form method="GET" action="/main">
-                <input type="submit" value="Main Page" class="example-button">
+            <form method="POST" action="/sign-out">
+                <input type="submit" value="Sign Out" class="example-button">
             </form>
-
+            
+            <form method="GET" action="/change-password">
+                <input type="submit" value="Change Password" class="example-button">
         {% else %}
             {{ html_response | safe }}
         {% endif %}
