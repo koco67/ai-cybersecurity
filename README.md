@@ -15,13 +15,9 @@
 - **Run integration tests:** python tests/test_integration.py -du sql11683464 -dp SfFsKWIcWP
 
 ## Links
-- **Train and Test Data example:** https://www.kaggle.com/datasets/sampadab17/network-intrusion-detection/data 
-- **github:** http://localhost:5000
+- **Train and Test Dataset examples:** https://www.kaggle.com/datasets/sampadab17/network-intrusion-detection/data 
+- **Project on github:** http://localhost:5000
 
-
-# database examples: https://www.kaggle.com/datasets/sampadab17/network-intrusion-detection/data 
-
-# Project on github: https://github.com/koco67/ai-cybersecurity.git
 
 
 
