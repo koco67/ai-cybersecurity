@@ -21,7 +21,7 @@ args = parser.parse_args()
 ai_model = AIModel()
 
 db_host = "sql11.freemysqlhosting.net"
-db_name = "sql11683464"
+db_name = "sql11686549"
 db_port = 3306
 
 UPLOAD_FOLDER = 'uploads'

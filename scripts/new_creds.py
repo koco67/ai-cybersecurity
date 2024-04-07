@@ -7,10 +7,10 @@ import api_methods
 parser = getStandardArgParser()
 args = parser.parse_args()
 # Usage example
-db_username = "sql11683464"
-db_password = "SfFsKWIcWP"
+db_username = "sql11686549"
+db_password = "e9JNxGrzxE"
 db_host = "sql11.freemysqlhosting.net"
-db_name = "sql11683464"
+db_name = "sql11686549"
 db_port = 3306
 
 # Create an instance of Database with automatic connection
