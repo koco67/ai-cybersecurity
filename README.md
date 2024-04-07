@@ -10,9 +10,9 @@
 - **Responsive Web Interface:** User-friendly web interface accessible from various devices.
 
 ## Runs
-- **Run application from /scripts:** python main.py -du sql11683464 -dp SfFsKWIcWP
+- **Run application from /scripts:** python main.py -du sql11686549 -dp e9JNxGrzxE
 - **Access the application:** http://localhost:5000
-- **Run integration tests:** python tests/test_integration.py -du sql11683464 -dp SfFsKWIcWP
+- **Run integration tests:** python tests/test_integration.py -du sql11686549 -dp e9JNxGrzxE
 
 ## Links
 - **Train and Test Dataset examples:** https://www.kaggle.com/datasets/sampadab17/network-intrusion-detection/data 

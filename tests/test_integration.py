@@ -66,5 +66,5 @@ if __name__ == '__main__':
 #from .status import Status
 #import scripts.api_methods as api_methods
 #run tests command with database username and password
-#ai-cybersecurity\scripts> python tests/test_integration.py -du sql11683464 -dp SfFsKWIcWP
+#ai-cybersecurity\scripts> python tests/test_integration.py -du sql11686549 -dp e9JNxGrzxE
 
